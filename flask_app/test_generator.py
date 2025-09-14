@@ -4,8 +4,8 @@ This script demonstrates the research and article generation without needing the
 """
 import os
 import sys
-from research.spider import research_plant
-from research.generator import generate_article
+from research_v2.spider import research_plant
+from research_v2.generator import generate_article
 from datetime import datetime
 
 def generate_plant_article(plant_name):

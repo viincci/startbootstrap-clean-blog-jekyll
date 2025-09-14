@@ -1,4 +1,5 @@
 Flask
 transformers
-scrapy
 wikipedia-api
+beautifulsoup4
+requests

@@ -1,23 +1,86 @@
-import scrapy
-from scrapy.crawler import CrawlerProcess
+"""
+Module for gathering research from multiple sources about South African plants.
+"""
 import wikipediaapi
+import requests    def get_wikipedia_content(self, plant_name):
+        """Get content from Wikipedia."""
+        wiki_page = self.wiki_wiki.page(plant_name)
+        if not wiki_page.exists():
+            # Try alternative names
+            if "king protea" in plant_name.lower():
+                wiki_page = self.wiki_wiki.page("Protea cynaroides")
+            elif "bird of paradise" in plant_name.lower():
+                wiki_page = self.wiki_wiki.page("Strelitzia reginae")
+        
+        if wiki_page.exists():
+            return {
+                'source': 'Wikipedia',
+                'title': wiki_page.title,
+                'content': wiki_page.text,
+                'url': wiki_page.fullurl,
+                'type': 'general_info'
+            }
+        return None
+
+    def extract_text_from_url(self, url):
+        """Extract main content from a webpage."""
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Remove unwanted elements
+                for element in soup(['script', 'style', 'nav', 'header', 'footer', 'ads']):
+                    element.decompose()
+                
+                # Get text content
+                text = ' '.join([p.get_text().strip() for p in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])])
+                return text
+        except Exception as e:
+            print(f"Error extracting content from {url}: {str(e)}")
+        return None
+
+    def is_relevant_url(self, url, plant_name):
+        """Check if URL is relevant to the plant."""
+        domain = urlparse(url).netloc
+        if any(trusted in domain for trusted in self.trusted_domains):
+            return True
+        
+        # Check if URL contains plant name or related keywords
+        url_lower = url.lower()
+        plant_words = plant_name.lower().split()
+        plant_in_url = any(word in url_lower for word in plant_words)
+        botanical_terms = ['plant', 'flora', 'botanical', 'garden', 'species', 'cultivation']
+        has_botanical_term = any(term in url_lower for term in botanical_terms)
+        
+        return plant_in_url and has_botanical_termsearch import search
+from bs4 import BeautifulSoup
 import json
 import os
+import time
+from urllib.parse import urlparse
 
-class PlantSpider(scrapy.Spider):
-    name = 'plant_spider'
-    custom_settings = {
-        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-
-    def __init__(self, plant_name=None, *args, **kwargs):
-        super(PlantSpider, self).__init__(*args, **kwargs)
-        self.plant_name = plant_name
-        self.results = []
+class ResearchCollector:
+    def __init__(self):
         self.wiki_wiki = wikipediaapi.Wikipedia(
-            user_agent='SouthAfricanPlantsResearchBot/1.0 (vincent@example.com)',
+            user_agent='SouthAfricanPlantsResearchBot/1.0 (botanical.research@example.com)',
             language='en'
         )
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        self.trusted_domains = [
+            'pza.sanbi.org',  # South African National Biodiversity Institute
+            'plantzafrica.com',
+            'biodiversityexplorer.info',
+            'kew.org',
+            'thejournalist.org.za',
+            'phytotrade.com',
+            'pfaf.org',  # Plants For A Future
+            'sciencedirect.com',
+            'researchgate.net',
+            'botany.cz',
+        ]
 
     def start_requests(self):
         # First get Wikipedia content
