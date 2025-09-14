@@ -1,5 +1,6 @@
 """
 Article generation module using AI to summarize research data.
+Updated to output HTML format with proper Jekyll front matter.
 """
 from transformers import pipeline
 import re
@@ -20,7 +21,7 @@ def extract_section_content(research_data: List[Dict], section_type: str) -> str
             relevant_content.append(item['content'])
     return ' '.join(relevant_content)
 
-def generate_section(summarizer, content: str, prompt: str, max_length: int = 250) -> str:
+def generate_section(summarizer, content: str, prompt: str, max_length: int = 200) -> str:
     """Generate a section using the summarizer with a specific prompt."""
     if not content:
         return ""
@@ -45,68 +46,110 @@ def generate_section(summarizer, content: str, prompt: str, max_length: int = 25
         print(f"Error generating section: {str(e)}")
         return ""
 
-def generate_article(research_data: List[Dict]) -> str:
-    """Generate a well-structured article from research data."""
+def generate_article(research_data: List[Dict], plant_name: str) -> str:
+    """Generate a well-structured HTML article from research data."""
     # Initialize the summarization pipeline
+    print("🤖 Initializing AI summarization model...")
     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
     
-    # Generate different sections
-    intro_content = extract_section_content(research_data, 'general_info')
-    characteristics_content = extract_section_content(research_data, 'characteristics')
-    benefits_content = extract_section_content(research_data, 'benefits')
-    cultural_content = extract_section_content(research_data, 'cultural')
-    care_content = extract_section_content(research_data, 'care_guide')
-    
-    # If specific sections are empty, use all content
+    # Extract all content for AI processing
     all_content = extract_section_content(research_data, 'all')
-    if not characteristics_content:
-        characteristics_content = all_content
-    if not benefits_content:
-        benefits_content = all_content
-    if not care_content:
-        care_content = all_content
     
-    # Generate sections using AI
-    introduction = generate_section(summarizer, intro_content, 
-                                 "Write an engaging introduction about this South African plant")
+    print("✍️ Generating article sections with AI...")
     
-    characteristics = generate_section(summarizer, characteristics_content,
-                                    "Describe the key characteristics and unique features")
+    # Generate different sections using AI summarization
+    introduction = generate_section(summarizer, all_content, 
+                                 f"Write an engaging introduction about {plant_name}, a South African plant")
     
-    benefits = generate_section(summarizer, benefits_content,
-                              "Explain the benefits, uses, and cultural significance")
+    characteristics = generate_section(summarizer, all_content,
+                                    f"Describe the key physical characteristics and unique features of {plant_name}")
     
-    care_guide = generate_section(summarizer, care_content,
-                                "Provide growing conditions and care requirements")
+    habitat_ecology = generate_section(summarizer, all_content,
+                                     f"Explain the natural habitat and ecological role of {plant_name}")
     
-    # Combine all sections into a structured article
-    article_sections = [
-        "## Introduction",
-        introduction or "Information about introduction will be added soon.",
-        "\n## Characteristics and Features",
-        characteristics or "Information about characteristics will be added soon.",
-        "\n## Benefits and Cultural Significance",
-        benefits or "Information about benefits will be added soon.",
-        "\n## Growing Guide and Care Tips",
-        care_guide or "Information about care guidelines will be added soon.",
-        "\n### Why You Should Consider This Plant",
-        "- Unique aesthetic appeal and conversation starter",
-        "- Connection to South African heritage and culture",
-        "- Potential for both indoor and outdoor cultivation",
-        "- Contribution to biodiversity and native plant preservation",
-        "\n### Key Considerations",
-        "- Climate requirements and local growing conditions",
-        "- Space needs and growth patterns",
-        "- Initial setup and ongoing maintenance",
-        "- Seasonal care requirements"
+    cultural_uses = generate_section(summarizer, all_content,
+                                   f"Describe the cultural significance and traditional uses of {plant_name}")
+    
+    conservation = generate_section(summarizer, all_content,
+                                  f"Discuss conservation status and growing information for {plant_name}")
+    
+    # Build HTML content with proper paragraph tags
+    html_sections = []
+    
+    # Introduction paragraphs
+    if introduction:
+        intro_sentences = introduction.split('. ')
+        for sentence in intro_sentences:
+            if sentence.strip() and len(sentence.strip()) > 20:
+                sentence = sentence.strip()
+                if not sentence.endswith('.'):
+                    sentence += '.'
+                html_sections.append(f"<p>{sentence}</p>")
+    
+    # Characteristics section
+    if characteristics:
+        html_sections.append('<h2 class="section-heading">Distinctive Features</h2>')
+        char_sentences = characteristics.split('. ')
+        for sentence in char_sentences:
+            if sentence.strip() and len(sentence.strip()) > 20:
+                sentence = sentence.strip()
+                if not sentence.endswith('.'):
+                    sentence += '.'
+                html_sections.append(f"<p>{sentence}</p>")
+    
+    # Habitat and Ecology section
+    if habitat_ecology:
+        html_sections.append('<h2 class="section-heading">Natural Habitat & Ecology</h2>')
+        habitat_sentences = habitat_ecology.split('. ')
+        for sentence in habitat_sentences:
+            if sentence.strip() and len(sentence.strip()) > 20:
+                sentence = sentence.strip()
+                if not sentence.endswith('.'):
+                    sentence += '.'
+                html_sections.append(f"<p>{sentence}</p>")
+    
+    # Cultural significance section
+    if cultural_uses:
+        html_sections.append('<h2 class="section-heading">Cultural Heritage</h2>')
+        cultural_sentences = cultural_uses.split('. ')
+        for sentence in cultural_sentences:
+            if sentence.strip() and len(sentence.strip()) > 20:
+                sentence = sentence.strip()
+                if not sentence.endswith('.'):
+                    sentence += '.'
+                html_sections.append(f"<p>{sentence}</p>")
+    
+    # Conservation section
+    if conservation:
+        html_sections.append('<h2 class="section-heading">Conservation & Cultivation</h2>')
+        conservation_sentences = conservation.split('. ')
+        for sentence in conservation_sentences:
+            if sentence.strip() and len(sentence.strip()) > 20:
+                sentence = sentence.strip()
+                if not sentence.endswith('.'):
+                    sentence += '.'
+                html_sections.append(f"<p>{sentence}</p>")
+    
+    # Add fallback content if no AI content was generated
+    if not html_sections:
+        html_sections = [
+            f"<p>{plant_name} is a remarkable plant species native to South Africa, known for its unique adaptations to the diverse South African landscape.</p>",
+            f"<p>This indigenous species plays an important role in its natural ecosystem and holds cultural significance for local communities.</p>",
+            '<h2 class="section-heading">A Living Heritage</h2>',
+            f"<p>South Africa's rich botanical heritage includes many species like {plant_name} that have evolved remarkable strategies for survival in challenging environments.</p>",
+            f"<p>Understanding and preserving these native species is crucial for maintaining the country's incredible biodiversity for future generations.</p>"
+        ]
+    
+    return '\n\n'.join(html_sections)
+
+def generate_plant_title(plant_name: str) -> str:
+    """Generate an engaging title for the plant article."""
+    titles = [
+        f"Discovering {plant_name}: A South African Botanical Treasure",
+        f"The Remarkable {plant_name}: Indigenous Beauty of South Africa",
+        f"{plant_name}: A Journey into South African Flora",
+        f"Exploring {plant_name}: Nature's Masterpiece from South Africa",
+        f"{plant_name}: Where Beauty Meets Botanical Wonder"
     ]
-    
-    final_article = "\n\n".join(article_sections)
-    
-    # Add sources
-    sources = "\n\n## Sources and Further Reading"
-    for item in research_data:
-        if 'url' in item and item['url'] != 'N/A':
-            sources += f"\n- {item['source']}: {item['url']}"
-    
-    return final_article + sources
+    # For now, just return the first one, but you could randomize or use AI to pick
+    return titles[0]
