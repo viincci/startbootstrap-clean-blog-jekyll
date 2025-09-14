@@ -1,0 +1,5 @@
+Flask
+transformers
+wikipedia-api
+beautifulsoup4
+requests
