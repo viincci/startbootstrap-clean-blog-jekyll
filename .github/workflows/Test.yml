@@ -22,6 +22,11 @@ on:
         description: 'Comma-separated list of plant names to test (e.g., "King Protea,Bird of Paradise")'
         required: false
         default: 'King Protea,Bird of Paradise,Aloe Ferox'
+      skip_ai:
+        description: 'Skip AI generation (faster testing, web scraping only)'
+        required: false
+        default: 'false'
+        type: boolean
       
 jobs:
   test-research-spider:
@@ -48,9 +53,10 @@ jobs:
         cd flask_app
         pip install --upgrade pip
         pip install requests beautifulsoup4 wikipedia-API urllib3
-        # Install transformers and torch for AI generation
-        pip install transformers torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-        pip install sentencepiece protobuf
+        # Install PyTorch CPU version first
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        # Then install transformers and related packages from PyPI
+        pip install transformers sentencepiece protobuf
     
     - name: 📁 Create necessary directories
       run: |
