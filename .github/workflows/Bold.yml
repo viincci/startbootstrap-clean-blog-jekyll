@@ -97,7 +97,7 @@ jobs:
         echo "Generating articles for plants: $ARGS"
         
         # Run the test generator with all plants
-        eval "python test_generator.py $ARGS"
+        eval "python flask_app/test_generator.py $ARGS"
         
     - name: List generated files
       run: |
