@@ -27,8 +27,8 @@ JekyllArticleGenerator = None
 
 # Try different import locations for the generator
 try:
-    from research_v2.generator import JekyllArticleGenerator
-    print("✓ Successfully imported JekyllArticleGenerator from research_v2.generator")
+    from research_v2.generator import ArticleGenerator as JekyllArticleGenerator
+    print("✓ Successfully imported ArticleGenerator from research_v2.generator")
     generator_imported = True
 except ImportError:
     try:
@@ -38,7 +38,7 @@ except ImportError:
     except ImportError:
         try:
             # Try importing from current directory
-            from generator import JekyllArticleGenerator
+            from generator import ArticleGenerator as JekyllArticleGenerator
             print("✓ Successfully imported JekyllArticleGenerator from generator.py")
             generator_imported = True
         except ImportError:
