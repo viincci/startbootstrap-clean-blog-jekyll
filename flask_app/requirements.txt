@@ -22,7 +22,7 @@ numpy>=1.21.0
 python-dateutil>=2.8.0
 
 # Text processing and matching
-difflib2>=0.1.0
+difflib>=0.1.0
 
 # JSON and data serialization
 jsonschema>=4.16.0
