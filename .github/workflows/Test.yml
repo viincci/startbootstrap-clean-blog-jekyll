@@ -169,14 +169,7 @@ jobs:
                 date = datetime.now()
                 filename = f'{date.strftime(\"%Y-%m-%d\")}-{plant_name.lower().replace(\" \", \"-\").replace(\"(\", \"\").replace(\")\", \"\")}.html'
                 
-                front_matter = f'''---
-layout: post
-title: \"{title}\"
-date: {date.strftime(\"%Y-%m-%d %H:%M:%S %z\")}
-background: '/img/posts/01.jpg'
----
-
-'''
+                front_matter = f'---\\nlayout: post\\ntitle: \"{title}\"\\ndate: {date.strftime(\"%Y-%m-%d %H:%M:%S %z\")}\\nbackground: \"/img/posts/01.jpg\"\\n---\\n\\n'
                 
                 full_article = front_matter + article_html
                 
@@ -303,4 +296,4 @@ background: '/img/posts/01.jpg'
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
         echo "- Generated articles available in \`generated-articles\` artifact" >> $GITHUB_STEP_SUMMARY
-        echo "- Research data available in \`research-data\` artifact" >> $GITHUB_STEP_SUMMARY
+        echo "- Research data available in \`research-data\` artifact" >> $GITHUB_STEP_SUMMARY 
