@@ -1,0 +1,306 @@
+name: Test Plant Research Generator
+
+on:
+  # Trigger on push to main branch
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'flask_app/research_v2/**'
+      - '.github/workflows/**'
+  
+  # Trigger on pull requests
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'flask_app/research_v2/**'
+      - '.github/workflows/**'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      plant_names:
+        description: 'Comma-separated list of plant names to test (e.g., "King Protea,Bird of Paradise")'
+        required: false
+        default: 'King Protea,Bird of Paradise,Aloe Ferox'
+      
+jobs:
+  test-research-spider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: 📦 Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev build-essential
+    
+    - name: 📥 Install Python dependencies
+      run: |
+        cd flask_app
+        pip install --upgrade pip
+        pip install requests beautifulsoup4 wikipediaapi urllib3
+        # Install transformers and torch for AI generation
+        pip install transformers torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        pip install sentencepiece protobuf
+    
+    - name: 📁 Create necessary directories
+      run: |
+        # _posts folder already exists at root level
+        mkdir -p _posts
+        ls -la  # Show root directory structure
+    
+    - name: 🕷️ Test Research Spider
+      working-directory: flask_app
+      run: |
+        echo "Testing research spider functionality..."
+        python3 -c "
+        import sys
+        import os
+        sys.path.append('.')
+        sys.path.append('./research_v2')
+        from research_v2.spider import research_plant
+        
+        # Test with a simple plant
+        print('Testing research spider with King Protea...')
+        try:
+            results = research_plant('King Protea')
+            print(f'✅ Research completed! Found {len(results)} sources')
+            for result in results:
+                print(f'  - {result.get(\"source\", \"Unknown\")}: {len(result.get(\"content\", \"\"))} chars')
+        except Exception as e:
+            print(f'❌ Research spider failed: {e}')
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+        "
+    
+    - name: 🤖 Test AI Article Generator
+      working-directory: flask_app
+      run: |
+        echo "Testing AI article generator..."
+        python3 -c "
+        import sys
+        import os
+        sys.path.append('.')
+        sys.path.append('./research_v2')
+        from research_v2.spider import research_plant
+        from research_v2.generator import generate_article
+        
+        print('Testing AI article generation...')
+        try:
+            # Get some research data
+            research_data = research_plant('King Protea')
+            print('✅ Research data obtained')
+            
+            # Generate article
+            article = generate_article(research_data, 'King Protea')
+            print(f'✅ Article generated! Length: {len(article)} characters')
+            
+            # Basic validation
+            if '<p>' in article and '</p>' in article:
+                print('✅ HTML formatting detected')
+            else:
+                print('⚠️  Warning: No HTML paragraph tags found')
+                
+            if 'section-heading' in article:
+                print('✅ Section headings detected')
+            else:
+                print('⚠️  Warning: No section headings found')
+                
+        except Exception as e:
+            print(f'❌ Article generation failed: {e}')
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+        "
+    
+    - name: 📝 Test Full Pipeline
+      run: |
+        echo "Testing complete pipeline with multiple plants..."
+        
+        # Determine plant names to test
+        if [ -n "${{ github.event.inputs.plant_names }}" ]; then
+          PLANTS="${{ github.event.inputs.plant_names }}"
+        else
+          PLANTS="King Protea,Bird of Paradise"
+        fi
+        
+        echo "Testing plants: $PLANTS"
+        
+        python3 -c "
+        import sys
+        import os
+        from datetime import datetime
+        sys.path.append('./flask_app')
+        sys.path.append('./flask_app/research_v2')
+        from flask_app.research_v2.spider import research_plant
+        from flask_app.research_v2.generator import generate_article, generate_plant_title
+        
+        # Parse plant names
+        plants = '$PLANTS'.split(',')
+        plants = [p.strip() for p in plants]
+        
+        success_count = 0
+        total_plants = len(plants)
+        
+        for i, plant_name in enumerate(plants):
+            print(f'\\n🌱 Testing {i+1}/{total_plants}: {plant_name}')
+            try:
+                # Research phase
+                print('  📚 Gathering research...')
+                research_data = research_plant(plant_name)
+                print(f'  ✅ Found {len(research_data)} sources')
+                
+                # Generation phase  
+                print('  🤖 Generating article...')
+                article_html = generate_article(research_data, plant_name)
+                title = generate_plant_title(plant_name)
+                
+                # Create output file
+                date = datetime.now()
+                filename = f'{date.strftime(\"%Y-%m-%d\")}-{plant_name.lower().replace(\" \", \"-\").replace(\"(\", \"\").replace(\")\", \"\")}.html'
+                
+                front_matter = f'''---
+layout: post
+title: \"{title}\"
+date: {date.strftime(\"%Y-%m-%d %H:%M:%S %z\")}
+background: '/img/posts/01.jpg'
+---
+
+'''
+                
+                full_article = front_matter + article_html
+                
+                # Save to _posts directory at root level
+                filepath = f'./_posts/{filename}'
+                os.makedirs('./_posts', exist_ok=True)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(full_article)
+                
+                print(f'  ✅ Article saved: {filename} ({len(full_article)} chars)')
+                success_count += 1
+                
+            except Exception as e:
+                print(f'  ❌ Failed for {plant_name}: {e}')
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        print(f'\\n🎉 Pipeline test complete: {success_count}/{total_plants} successful')
+        
+        if success_count == 0:
+            print('❌ No articles generated successfully')
+            sys.exit(1)
+        elif success_count < total_plants:
+            print('⚠️  Some articles failed to generate')
+        else:
+            print('✅ All articles generated successfully!')
+        "
+    
+    - name: 📊 Validate Generated Content
+      run: |
+        echo "Validating generated articles..."
+        
+        # Check if any files were created
+        if ls _posts/*.html 1> /dev/null 2>&1; then
+          echo "✅ HTML files generated:"
+          ls -la _posts/*.html
+          
+          # Validate HTML structure
+          for file in _posts/*.html; do
+            echo "Checking $file..."
+            
+            # Check for required front matter
+            if grep -q "^layout: post$" "$file"; then
+              echo "  ✅ Layout specified"
+            else
+              echo "  ❌ Missing layout specification"
+            fi
+            
+            if grep -q "^title:" "$file"; then
+              echo "  ✅ Title present"
+            else
+              echo "  ❌ Missing title"
+            fi
+            
+            if grep -q "^date:" "$file"; then
+              echo "  ✅ Date present"
+            else
+              echo "  ❌ Missing date"
+            fi
+            
+            # Check for HTML content
+            if grep -q "<p>" "$file"; then
+              echo "  ✅ HTML paragraphs found"
+            else
+              echo "  ❌ No HTML paragraphs"
+            fi
+            
+            if grep -q 'class="section-heading"' "$file"; then
+              echo "  ✅ Section headings found"
+            else
+              echo "  ⚠️  No section headings found"
+            fi
+            
+            # Check file size
+            size=$(wc -c < "$file")
+            if [ "$size" -gt 1000 ]; then
+              echo "  ✅ Substantial content ($size chars)"
+            else
+              echo "  ⚠️  Small content size ($size chars)"
+            fi
+            
+            echo ""
+          done
+        else
+          echo "❌ No HTML files were generated"
+          exit 1
+        fi
+    
+    - name: 📤 Upload Generated Articles
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: generated-articles
+        path: _posts/*.html
+        retention-days: 7
+    
+    - name: 📤 Upload Research Data
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: research-data
+        path: flask_app/research_v2/research_results.json
+        retention-days: 7
+    
+    - name: 📋 Test Summary
+      if: always()
+      run: |
+        echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Generated Articles" >> $GITHUB_STEP_SUMMARY
+        if ls _posts/*.html 1> /dev/null 2>&1; then
+          echo "✅ Successfully generated the following articles:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for file in _posts/*.html; do
+            filename=$(basename "$file")
+            size=$(wc -c < "$file")
+            echo "- \`$filename\` (${size} characters)" >> $GITHUB_STEP_SUMMARY
+          done
+        else
+          echo "❌ No articles were generated" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Generated articles available in \`generated-articles\` artifact" >> $GITHUB_STEP_SUMMARY
+        echo "- Research data available in \`research-data\` artifact" >> $GITHUB_STEP_SUMMARY
