@@ -183,7 +183,16 @@ jobs:
           for file in _posts/*.html; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
-              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+              # Use compatible stat command
+              if command -v stat >/dev/null 2>&1; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                  size=$(stat -f%z "$file")
+                else
+                  size=$(stat -c%s "$file")
+                fi
+              else
+                size="unknown"
+              fi
               echo "- $filename (${size} bytes)" >> $GITHUB_STEP_SUMMARY
             fi
           done
@@ -198,7 +207,7 @@ jobs:
   test-jekyll-build:
     needs: generate-and-deploy
     runs-on: ubuntu-latest
-    if: always()  # Run even if previous job fails
+    if: success()  # Only run if previous job succeeds
     
     steps:
     - name: Checkout blog repository
