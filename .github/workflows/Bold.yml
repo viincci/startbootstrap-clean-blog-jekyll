@@ -1,0 +1,229 @@
+name: Generate Plant Blog Posts
+
+on:
+  # Run manually via workflow dispatch
+  workflow_dispatch:
+    inputs:
+      plants:
+        description: 'Plant names (comma-separated)'
+        required: true
+        default: 'King Protea,Rooibos,Bird of Paradise'
+        type: string
+      
+  # Run on schedule (weekly on Sundays)
+  schedule:
+    - cron: '0 10 * * 0'  # 10:00 AM UTC every Sunday
+  
+  # Run on push to main branch (optional)
+  push:
+    branches: [ main ]
+    paths:
+      - 'research_v2/**'
+      - 'test_generator.py'
+
+env:
+  # Target repository for blog posts
+  TARGET_REPO: 'viincci/startbootstrap-clean-blog-jekyll'
+  TARGET_BRANCH: 'master'  # or 'main' depending on your blog repo
+  
+jobs:
+  generate-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout source repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        
+        # Check if requirements.txt exists and install from it
+        if [ -f requirements.txt ]; then
+          echo "Installing dependencies from requirements.txt..."
+          pip install -r requirements.txt
+        else
+          echo "No requirements.txt found. Installing essential packages manually..."
+          # Install required packages manually as fallback
+          pip install Flask transformers wikipedia-api beautifulsoup4 requests torch
+        fi
+        
+        echo "Dependencies installation complete!"
+        
+    - name: Create _posts directory
+      run: mkdir -p _posts
+      
+    - name: Determine plants to process
+      id: plants
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          # Use user-provided plants
+          PLANTS="${{ github.event.inputs.plants }}"
+        else
+          # Use default plants for scheduled runs
+          PLANTS="King Protea,Rooibos,Bird of Paradise,Cape Aloe,Buchu"
+        fi
+        
+        echo "plants=$PLANTS" >> $GITHUB_OUTPUT
+        echo "Processing plants: $PLANTS"
+        
+    - name: Generate blog posts
+      run: |
+        # Convert comma-separated plants to space-separated arguments
+        PLANTS="${{ steps.plants.outputs.plants }}"
+        IFS=',' read -ra PLANT_ARRAY <<< "$PLANTS"
+        
+        # Build arguments array
+        ARGS=""
+        for plant in "${PLANT_ARRAY[@]}"; do
+          # Trim whitespace
+          plant=$(echo "$plant" | xargs)
+          ARGS="$ARGS \"$plant\""
+        done
+        
+        echo "Generating articles for plants: $ARGS"
+        
+        # Run the test generator with all plants
+        eval "python test_generator.py $ARGS"
+        
+    - name: List generated files
+      run: |
+        echo "Generated blog posts:"
+        ls -la _posts/ || echo "No posts generated"
+        
+        if [ -d "_posts" ] && [ "$(ls -A _posts)" ]; then
+          echo "Post contents:"
+          for file in _posts/*.html; do
+            if [ -f "$file" ]; then
+              echo "=== $file ==="
+              head -20 "$file"
+              echo ""
+            fi
+          done
+        else
+          echo "ERROR: No blog posts were generated!"
+          exit 1
+        fi
+        
+    - name: Checkout target blog repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.TARGET_REPO }}
+        token: ${{ secrets.BLOG_DEPLOY_TOKEN }}
+        path: blog-repo
+        ref: ${{ env.TARGET_BRANCH }}
+        
+    - name: Copy posts to blog repository
+      run: |
+        # Create _posts directory in blog repo if it doesn't exist
+        mkdir -p blog-repo/_posts
+        
+        # Copy generated posts
+        if [ -d "_posts" ] && [ "$(ls -A _posts)" ]; then
+          cp _posts/*.html blog-repo/_posts/
+          echo "Copied posts to blog repository:"
+          ls -la blog-repo/_posts/
+        else
+          echo "No posts to copy!"
+          exit 1
+        fi
+        
+    - name: Configure Git
+      run: |
+        cd blog-repo
+        git config user.name "Plant Bot"
+        git config user.email "miguelmehgoss@gmail.com"
+        
+    - name: Commit and push to blog repository
+      run: |
+        cd blog-repo
+        
+        # Check if there are any changes
+        if [ -n "$(git status --porcelain)" ]; then
+          git add _posts/
+          
+          # Create commit message
+          PLANTS="${{ steps.plants.outputs.plants }}"
+          git commit -m "Add new plant blog posts: $PLANTS
+          
+          Generated automatically by GitHub Actions
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}"
+          
+          # Push to the blog repository
+          git push origin ${{ env.TARGET_BRANCH }}
+          
+          echo "Successfully pushed new blog posts!"
+        else
+          echo "No changes to commit"
+        fi
+        
+    - name: Create summary
+      run: |
+        echo "## Blog Generation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Plants processed:** ${{ steps.plants.outputs.plants }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -d "_posts" ] && [ "$(ls -A _posts)" ]; then
+          echo "**Generated posts:**" >> $GITHUB_STEP_SUMMARY
+          for file in _posts/*.html; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+              echo "- $filename (${size} bytes)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        else
+          echo "**ERROR:** No posts were generated!" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Target repository:** [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }})" >> $GITHUB_STEP_SUMMARY
+        
+  # Optional: Build and test the Jekyll site
+  test-jekyll-build:
+    needs: generate-and-deploy
+    runs-on: ubuntu-latest
+    if: always()  # Run even if previous job fails
+    
+    steps:
+    - name: Checkout blog repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.TARGET_REPO }}
+        token: ${{ secrets.BLOG_DEPLOY_TOKEN }}
+        ref: ${{ env.TARGET_BRANCH }}
+        
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.1'
+        bundler-cache: true
+        
+    - name: Install Jekyll dependencies
+      run: |
+        bundle install
+        
+    - name: Build Jekyll site
+      run: |
+        bundle exec jekyll build --verbose
+        
+    - name: Test site build
+      run: |
+        echo "Jekyll site built successfully!"
+        echo "Generated pages:"
+        find _site -name "*.html" | head -10
