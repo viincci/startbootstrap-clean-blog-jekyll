@@ -65,7 +65,7 @@ class ArticleGenerator:
         
         return ' '.join(relevant_content)
 
-    def generate_section(self, content: str, prompt: str, max_length: int = 200, min_length: int = 50) -> str:
+    def generate_section(self, content: str, prompt: str, max_length: int = 80, min_length: int = 50) -> str:
         """Generate a section using the summarizer with a specific prompt."""
         if not content or not content.strip():
             return ""
