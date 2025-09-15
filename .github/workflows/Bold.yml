@@ -1,0 +1,343 @@
+name: Generate Plant Blog Posts
+
+on:
+  # Run manually via workflow dispatch
+  workflow_dispatch:
+    inputs:
+      plants:
+        description: 'Plant names (comma-separated)'
+        required: true
+        default: 'King Protea,Rooibos,Bird of Paradise'
+        type: string
+      
+  # Run on schedule (weekly on Sundays)
+  schedule:
+    - cron: '0 10 * * 0'  # 10:00 AM UTC every Sunday
+  
+  # Run on push to main branch (optional)
+  push:
+    branches: [ main ]
+    paths:
+      - 'research_v2/**'
+      - 'test_generator.py'
+
+env:
+  # Target repository for blog posts
+  TARGET_REPO: 'MrViincciLeRoy/startbootstrap-clean-blog-jekyll'
+  TARGET_BRANCH: 'master'  # or 'main' depending on your blog repo
+  
+jobs:
+  generate-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout source repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        
+        # Check if requirements.txt exists and install from it
+        if [ -f flask_app/requirements.txt ]; then
+          echo "Installing dependencies from flask_app/requirements.txt..."
+          pip install -r flask_app/requirements.txt
+        elif [ -f requirements.txt ]; then
+          echo "Installing dependencies from requirements.txt..."
+          pip install -r requirements.txt
+        else
+          echo "No requirements.txt found. Installing essential packages manually..."
+          # Install required packages manually as fallback
+          pip install Flask transformers wikipedia-api beautifulsoup4 requests torch
+        fi
+        
+        echo "Dependencies installation complete!"
+        
+    - name: Create _posts directory
+      run: mkdir -p _posts
+      
+    - name: Determine plants to process
+      id: plants
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          # Use user-provided plants
+          PLANTS="${{ github.event.inputs.plants }}"
+        else
+          # Use default plants for scheduled runs
+          PLANTS="King Protea,Rooibos,Bird of Paradise,Cape Aloe,Buchu"
+        fi
+        
+        echo "plants=$PLANTS" >> $GITHUB_OUTPUT
+        echo "Processing plants: $PLANTS"
+        
+    - name: Generate blog posts
+      run: |
+        # Set working directory to flask_app if that's where the script is
+        cd flask_app || echo "No flask_app directory, continuing in root"
+        
+        # Convert comma-separated plants to space-separated arguments
+        PLANTS="${{ steps.plants.outputs.plants }}"
+        IFS=',' read -ra PLANT_ARRAY <<< "$PLANTS"
+        
+        # Build arguments array
+        ARGS=""
+        for plant in "${PLANT_ARRAY[@]}"; do
+          # Trim whitespace
+          plant=$(echo "$plant" | xargs)
+          ARGS="$ARGS \"$plant\""
+        done
+        
+        echo "Generating articles for plants: $ARGS"
+        echo "Current directory: $(pwd)"
+        echo "Python path: $(which python)"
+        echo "Available files:"
+        ls -la
+        
+        # Try different script locations
+        if [ -f "test_generator.py" ]; then
+          echo "Running test_generator.py from current directory"
+          eval "python test_generator.py $ARGS"
+        elif [ -f "../flask_app/test_generator.py" ]; then
+          echo "Running test_generator.py from flask_app directory"
+          eval "python ../flask_app/test_generator.py $ARGS"
+        elif [ -f "generator.py" ]; then
+          echo "Running generator.py from current directory"
+          eval "python generator.py $ARGS"
+        else
+          echo "ERROR: Cannot find generator script!"
+          find . -name "*generator*.py" -type f
+          exit 1
+        fi
+        
+    - name: Debug - Show current directory structure
+      run: |
+        echo "Current directory structure:"
+        find . -type f -name "*.html" -o -name "*.md" | head -20
+        echo ""
+        echo "Contents of _posts directory:"
+        ls -la _posts/ || echo "No _posts directory found"
+        echo ""
+        echo "Looking for generated posts anywhere:"
+        find . -name "*.html" -newer /tmp -type f 2>/dev/null || echo "No recent HTML files found"
+        
+    - name: List generated files
+      run: |
+        echo "Generated blog posts:"
+        ls -la _posts/ || echo "No posts directory found"
+        
+        # Also check flask_app directory
+        if [ -d "flask_app/_posts" ]; then
+          echo "Posts found in flask_app directory:"
+          ls -la flask_app/_posts/
+          # Move posts to root _posts directory
+          mkdir -p _posts
+          cp flask_app/_posts/*.html _posts/ 2>/dev/null || echo "No HTML files to copy from flask_app/_posts"
+        fi
+        
+        if [ -d "_posts" ] && [ "$(ls -A _posts 2>/dev/null)" ]; then
+          echo "Final post contents:"
+          for file in _posts/*.html _posts/*.md; do
+            if [ -f "$file" ]; then
+              echo "=== $file ==="
+              head -20 "$file"
+              echo ""
+            fi
+          done
+        else
+          echo "ERROR: No blog posts were generated!"
+          echo "Searching entire directory for any generated content..."
+          find . -name "*.html" -o -name "*.md" | grep -E "(post|blog|article)" || echo "No matching files found"
+          exit 1
+        fi
+        
+    - name: Checkout target blog repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.TARGET_REPO }}
+        token: ${{ secrets.BLOG_DEPLOY_TOKEN }}  # Try default token first
+        path: blog-repo
+        ref: ${{ env.TARGET_BRANCH }}
+        fetch-depth: 0  # Fetch full history
+        
+    - name: Debug - Check blog repo structure
+      run: |
+        echo "Blog repository structure:"
+        ls -la blog-repo/
+        echo ""
+        echo "Existing _posts in blog repo:"
+        ls -la blog-repo/_posts/ || echo "No _posts directory in blog repo"
+        echo ""
+        echo "Git status in blog repo:"
+        cd blog-repo
+        git status
+        git log --oneline -5
+        
+    - name: Copy posts to blog repository
+      run: |
+        # Create _posts directory in blog repo if it doesn't exist
+        mkdir -p blog-repo/_posts
+        
+        # Copy generated posts
+        if [ -d "_posts" ] && [ "$(ls -A _posts 2>/dev/null)" ]; then
+          echo "Copying posts to blog repository..."
+          cp _posts/*.html blog-repo/_posts/ 2>/dev/null || echo "No HTML files to copy"
+          cp _posts/*.md blog-repo/_posts/ 2>/dev/null || echo "No Markdown files to copy"
+          
+          echo "Posts copied to blog repository:"
+          ls -la blog-repo/_posts/
+          
+          # Show content of copied files
+          echo "Content of copied files:"
+          for file in blog-repo/_posts/*; do
+            if [ -f "$file" ] && [ "$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file")" -gt 0 ]; then
+              echo "=== $(basename $file) ==="
+              head -10 "$file"
+              echo ""
+            fi
+          done
+        else
+          echo "No posts to copy!"
+          exit 1
+        fi
+        
+    - name: Configure Git
+      run: |
+        cd blog-repo
+        git config user.name "Plant Bot"
+        git config user.email "miguelmehgoss@gmail.com"
+        
+    - name: Debug Git changes
+      run: |
+        cd blog-repo
+        echo "Git status before commit:"
+        git status
+        echo ""
+        echo "Git diff:"
+        git diff --name-only
+        echo ""
+        echo "Files to be added:"
+        git ls-files --others --exclude-standard
+        
+    - name: Commit and push to blog repository
+      run: |
+        cd blog-repo
+        
+        # Add all new files
+        git add _posts/
+        
+        # Check if there are any changes
+        if [ -n "$(git status --porcelain)" ]; then
+          # Create commit message
+          PLANTS="${{ steps.plants.outputs.plants }}"
+          git commit -m "Add new plant blog posts: $PLANTS
+
+          Generated automatically by GitHub Actions
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}
+          Timestamp: $(date)"
+          
+          echo "Commit created successfully!"
+          echo "Git log:"
+          git log --oneline -3
+          
+          # Push to the blog repository
+          echo "Pushing to ${{ env.TARGET_BRANCH }} branch..."
+          git push origin ${{ env.TARGET_BRANCH }}
+          
+          echo "Successfully pushed new blog posts!"
+          
+          # Verify push
+          echo "Verifying push with git status:"
+          git status
+        else
+          echo "No changes to commit"
+          echo "Current git status:"
+          git status
+          echo "Files in _posts:"
+          ls -la _posts/ || echo "No _posts directory"
+        fi
+        
+    - name: Create summary
+      if: always()
+      run: |
+        echo "## Blog Generation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Plants processed:** ${{ steps.plants.outputs.plants }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Workflow trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** ${{ env.TARGET_REPO }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Target branch:** ${{ env.TARGET_BRANCH }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -d "_posts" ] && [ "$(ls -A _posts 2>/dev/null)" ]; then
+          echo "**Generated posts:**" >> $GITHUB_STEP_SUMMARY
+          for file in _posts/*.html _posts/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file")
+              echo "- $filename (${size} bytes)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        else
+          echo "**ERROR:** No posts were generated!" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Blog URL:** [View Blog](https://${{ github.repository_owner }}.github.io/startbootstrap-clean-blog-jekyll/)" >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Build and test the Jekyll site
+  test-jekyll-build:
+    needs: generate-and-deploy
+    runs-on: ubuntu-latest
+    if: success()  # Only run if previous job succeeded
+    
+    steps:
+    - name: Checkout blog repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.TARGET_REPO }}
+        token: ${{ secrets.BLOG_DEPLOY_TOKEN }}
+        ref: ${{ env.TARGET_BRANCH }}
+        
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.1'
+        bundler-cache: true
+        
+    - name: Install Jekyll dependencies
+      run: |
+        if [ -f "Gemfile" ]; then
+          bundle install
+        else
+          gem install jekyll bundler
+        fi
+        
+    - name: Build Jekyll site
+      run: |
+        if [ -f "Gemfile" ]; then
+          bundle exec jekyll build --verbose
+        else
+          jekyll build --verbose
+        fi
+        
+    - name: Test site build
+      run: |
+        echo "Jekyll site built successfully!"
+        echo "Generated pages:"
+        find _site -name "*.html" | head -10
+        
+        echo "Recent blog posts in built site:"
+        find _site -path "*posts*" -name "*.html" | head -5 
